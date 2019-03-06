@@ -1,0 +1,1206 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+
+
+Description: Fargate Compute Example
+
+
+Parameters:
+
+  EnvironmentName:
+    Description: Environment name, either dev or prod
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+    ConstraintDescription: Specify either dev or prod
+
+  ModelBucketName:
+    Description: The bucket to pull the models from
+    Type: String
+
+  BuildAccountId:
+    Description: The AWS build account id
+    Type: String
+
+  AvailabilityZone0:
+    Description: The first availability zone in the region
+    Type: AWS::EC2::AvailabilityZone::Name
+    ConstraintDescription: Must be a valid availability zone
+
+  AvailabilityZone1:
+    Description: The second availability zone in the region
+    Type: AWS::EC2::AvailabilityZone::Name
+    ConstraintDescription: Must be a valid availability zone
+
+  SslCertificateArn:
+    Type: String
+    Description: The SSL/TLS certificate ARN
+    MinLength: 0
+    MaxLength: 2048
+    Default: ""
+
+  SeedDockerImage:
+    Type: String
+    Description: Initial image before CodePipeline is executed. Existing application images in ECR should override this parameter
+
+  ContainerCpuApi:
+    Type: Number
+    Description: Amount of CPU for the container - https://aws.amazon.com/fargate/pricing/
+    Default: 512
+    MinValue: 256
+    MaxValue: 4096
+    ConstraintDescription: Value must be between 256 and 4096
+
+  ContainerMemoryApi:
+    Type: Number
+    Description: Amount of memory for the container - https://aws.amazon.com/fargate/pricing/
+    Default: 1024
+    MinValue: 512
+    MaxValue: 30720
+    ConstraintDescription: Value must be between 512 and 30720
+
+  ContainerCpuWorker:
+    Type: Number
+    Description: Amount of CPU for the container - https://aws.amazon.com/fargate/pricing/
+    Default: 256
+    MinValue: 256
+    MaxValue: 4096
+    ConstraintDescription: Value must be between 256 and 4096
+
+  ContainerMemoryWorker:
+    Type: Number
+    Description: Amount of memory for the container - https://aws.amazon.com/fargate/pricing/
+    Default: 512
+    MinValue: 512
+    MaxValue: 30720
+    ConstraintDescription: Value must be between 512 and 30720
+
+  DatabaseName:
+    Default: compute
+    Type: String
+    Description: Database name
+    MinLength: 5
+    MaxLength: 30
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    ConstraintDescription: Name must begin with a letter and contain only alphanumeric characters
+
+  DatabaseUser:
+    Default: root
+    Type: String
+    Description: Database admin account name
+    MinLength: 4
+    MaxLength: 16
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    ConstraintDescription: Name must begin with a letter and contain only alphanumeric characters
+
+  DatabasePassword:
+    NoEcho: true
+    Type: String
+    Description: Database admin account password
+    MinLength: 6
+    MaxLength: 41
+    AllowedPattern: "[a-zA-Z0-9]*"
+    ConstraintDescription: Password must contain only alphanumeric characters
+
+  DatabaseSize:
+    Default: 100
+    Type: Number
+    Description: Database storage size in gigabytes (GB)
+    MinValue: 5
+    ConstraintDescription: Enter a size of at least 5 GB
+
+  DatabaseInstanceClass:
+    Default: db.t3.medium
+    Type: String
+    Description: Database instance class
+    ConstraintDescription: DB instance class not supported
+
+  AlbIngressPort:
+    Description: The ALB ingress port used by security groups
+    Type: Number
+    MinValue: 0
+    MaxValue: 65535
+    ConstraintDescription: TCP ports must be between 0 - 65535
+    Default: 80
+
+  AppIngressPort:
+    Description: The application ingress port used by security groups
+    Type: Number
+    MinValue: 0
+    MaxValue: 65535
+    ConstraintDescription: TCP ports must be between 0 - 65535
+    Default: 8080
+
+  AppProtocol:
+    Type: String
+    Description: The application server protocol
+    Default: HTTP
+    AllowedValues:
+      - HTTP
+      - HTTPS
+    ConstraintDescription: Specify either HTTTP or HTTPS
+
+  # Scaling params
+  WorkerServiceScaleEvaluationPeriods:
+    Description: The number of periods over which data is compared to the specified threshold
+    Type: Number
+    Default: 2
+    MinValue: 2
+
+  WorkerServiceQueueDepthScaleOutThreshold:
+    Type: Number
+    Description: Average queue depth value to trigger auto scaling out
+    Default: 20
+
+  WorkerServiceQueueDepthScaleInThreshold:
+    Type: Number
+    Description: Average queue depth value to trigger auto scaling in
+    Default: 25
+    MinValue: 0
+    ConstraintDescription: Value must be between 0 or more
+
+  WorkerTaskMinContainerCount:
+    Type: Number
+    Description: Minimum number of containers to run for the service
+    Default: 1
+    MinValue: 0
+
+  WorkerTaskMaxContainerCount:
+    Type: Number
+    Description: Maximum number of containers to run for the service when auto scaling out
+    Default: 5
+    MinValue: 1
+    ConstraintDescription: Value must be at least one
+
+  JobQueueVisibilityTimeout:
+    Type: Number
+    Description: The SQS visibility timeout
+    MinValue: 0
+    MaxValue: 43200
+    Default: 7200 # Two hour default
+
+  JobCompletedQueueVisibilityTimeout:
+    Type: Number
+    Description: The SQS visibility timeout
+    MinValue: 0
+    MaxValue: 43200
+    Default: 500
+
+
+Mappings:
+
+  # Maps CIDR blocks to VPC and various subnets
+  CidrMap:
+    Vpc:
+      Cidr: 10.50.0.0/16
+    Public0:
+      Cidr: 10.50.0.0/24
+    Public1:
+      Cidr: 10.50.1.0/24
+    Private0:
+      Cidr: 10.50.64.0/19
+    Private1:
+      Cidr: 10.50.96.0/19
+
+
+Conditions:
+
+  TlsCertPasssed: !Not [ !Equals [ !Ref SslCertificateArn, "" ] ]
+
+  IsProd: !Equals [ !Ref EnvironmentName, prod ]
+
+
+Resources:
+
+  JobQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: !Ref JobQueueVisibilityTimeout
+      KmsMasterKeyId: alias/aws/sqs
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  JobCompletedQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: !Ref JobCompletedQueueVisibilityTimeout
+      KmsMasterKeyId: alias/aws/sqs
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !FindInMap [ CidrMap, Vpc, Cidr ]
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+      - Key: Name
+        Value: !Ref AWS::StackName
+      - Key: Environment
+        Value: !Ref EnvironmentName
+
+  PublicSubnet0:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [ CidrMap, Public0, Cidr ]
+      AvailabilityZone: !Ref AvailabilityZone0
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-PublicSubnet0
+      - Key: Environment
+        Value: !Ref EnvironmentName
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [ CidrMap, Public1, Cidr ]
+      AvailabilityZone: !Ref AvailabilityZone1
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-PublicSubnet1
+      - Key: Environment
+        Value: !Ref EnvironmentName
+
+  PrivateSubnet0:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [ CidrMap, Private0, Cidr ]
+      AvailabilityZone: !Ref AvailabilityZone0
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-PrivateSubnet0
+      - Key: Environment
+        Value: !Ref EnvironmentName
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !FindInMap [ CidrMap, Private1, Cidr ]
+      AvailabilityZone: !Ref AvailabilityZone1
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-PrivateSubnet1
+      - Key: Environment
+        Value: !Ref EnvironmentName
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-igw
+
+  VpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-public-route
+
+  PrivateRouteTableSubnet0:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-private-route-0
+
+  PrivateRouteTableSubnet1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-private-route-1
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation0:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet0
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetNetworkAclAssociation0:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet0
+      NetworkAclId: !GetAtt Vpc.DefaultNetworkAcl
+
+  PublicSubnetNetworkAclAssociation1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      NetworkAclId: !GetAtt Vpc.DefaultNetworkAcl
+
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+
+  DataTempBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+
+  FargateCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref AWS::StackName
+
+  LogGroupApi:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /app/${AWS::StackName}/compute-api
+
+  LogGroupWorker:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /app/${AWS::StackName}/compute-worker
+
+  TaskRoleApi:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: sqs-job-queue-access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt JobQueue.Arn
+        - PolicyName: sqs-job-completed-queue-access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:SendMessage
+                Resource: !GetAtt JobCompletedQueue.Arn
+        - PolicyName: get-secret
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:GetSecretValue
+                Condition:
+                  ForAnyValue:StringLike:
+                    secretsmanager:VersionStage: AWSCURRENT
+                Resource: !Ref DatabasePasswordSecret
+
+  TaskRoleWorker:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: sqs-job-completed-queue-access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt JobCompletedQueue.Arn
+        - PolicyName: sqs-job-queue-access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                Resource: !GetAtt JobQueue.Arn
+        - PolicyName: data-s3-bucket
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: s3:*
+                Resource: !GetAtt DataBucket.Arn
+        - PolicyName: get-secret
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:GetSecretValue
+                Condition:
+                  ForAnyValue:StringLike:
+                    secretsmanager:VersionStage: AWSCURRENT
+                Resource: !Ref DatabasePasswordSecret
+
+  FargateTaskDefinitionApi:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref AWS::StackName
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Ref ContainerCpuApi
+      Memory: !Ref ContainerMemoryApi
+      NetworkMode: awsvpc
+      TaskRoleArn: !GetAtt TaskRoleApi.Arn
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: !Sub ${AWS::StackName}-api
+          Image: !Ref SeedDockerImage
+          ReadonlyRootFilesystem: true
+          PortMappings:
+            - ContainerPort: !Ref AppIngressPort
+          Environment:
+            - Name: DATA_BUCKET
+              Value: !Ref DataBucket
+            - Name: DATA_TEMP_BUCKET
+              Value: !Ref DataTempBucket
+            - Name: MODEL_BUCKET
+              Value: !Ref ModelBucketName
+            - Name: DB_ENDPOINT
+              Value: !GetAtt Database.Endpoint.Address
+            - Name: DB_PORT
+              Value: !GetAtt Database.Endpoint.Port
+            - Name: DB_USER
+              Value: !Ref DatabaseUser
+            - Name: DB_PASSWORD_SECRET_NAME
+              Value: !Sub ${AWS::StackName}-DatabasePassword
+            - Name: SQS_JOB_QUEUE_NAME
+              Value: !GetAtt JobQueue.QueueName
+            - Name: SQS_JOB_COMPLETED_QUEUE_NAME
+              Value: !GetAtt JobCompletedQueue.QueueName
+            - Name: AWS_ACCOUNT_ID
+              Value: !Ref AWS::AccountId
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: STACK_NAME
+              Value: !Ref AWS::StackName
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref LogGroupApi
+              awslogs-stream-prefix: api
+
+  FargateTaskDefinitionWorker:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${AWS::StackName}-worker
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Ref ContainerCpuWorker
+      Memory: !Ref ContainerMemoryWorker
+      NetworkMode: awsvpc
+      TaskRoleArn: !GetAtt TaskRoleWorker.Arn
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: !Sub ${AWS::StackName}-worker
+          Image: !Ref SeedDockerImage
+          ReadonlyRootFilesystem: true
+          Environment:
+            - Name: DATA_BUCKET
+              Value: !Ref DataBucket
+            - Name: DATA_TEMP_BUCKET
+              Value: !Ref DataTempBucket
+            - Name: MODEL_BUCKET
+              Value: !Ref ModelBucketName
+            - Name: DB_ENDPOINT
+              Value: !GetAtt Database.Endpoint.Address
+            - Name: DB_PORT
+              Value: !GetAtt Database.Endpoint.Port
+            - Name: DB_USER
+              Value: !Ref DatabaseUser
+            - Name: DB_PASSWORD_SECRET_NAME
+              Value: !Sub ${AWS::StackName}-DatabasePassword
+            - Name: SQS_JOB_QUEUE_NAME
+              Value: !GetAtt JobQueue.QueueName
+            - Name: SQS_JOB_COMPLETED_QUEUE_NAME
+            - Name: AWS_ACCOUNT_ID
+              Value: !Ref AWS::AccountId
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: STACK_NAME
+              Value: !Ref AWS::StackName
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref LogGroupWorker
+              awslogs-stream-prefix: worker
+
+  SecretsManagerVpcEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Secrets Manager Vpc Endpoint security group
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+      - SourceSecurityGroupId: !Ref AppSecurityGroup
+        IpProtocol: tcp
+        ToPort: 443
+        FromPort: 443
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-SecretsManagerVpcEndpointSecurityGroup
+
+  CloudWatchLogsVpcEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: CloudWatch Logs Vpc Endpoint security group
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+      - SourceSecurityGroupId: !Ref AppSecurityGroup
+        IpProtocol: tcp
+        ToPort: 443
+        FromPort: 443
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-CloudWatchLogsVpcEndpointSecurityGroup
+
+  SqsVpcEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SQS Vpc Endpoint security group
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+      - SourceSecurityGroupId: !Ref AppSecurityGroup
+        IpProtocol: tcp
+        ToPort: 443
+        FromPort: 443
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-SqsVpcEndpointSecurityGroup
+
+  SqsVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.sqs
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet0
+        - !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !GetAtt SqsVpcEndpointSecurityGroup.GroupId
+
+  SecretsManagerVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.secretsmanager
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet0
+        - !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !GetAtt SecretsManagerVpcEndpointSecurityGroup.GroupId
+
+  CloudWatchLogsVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      PrivateDnsEnabled: true
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.logs
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref PrivateSubnet0
+        - !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !GetAtt CloudWatchLogsVpcEndpointSecurityGroup.GroupId
+
+  S3VpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: Gateway
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action:
+              - s3:GetObject
+            Resource:
+              - !Sub arn:aws:s3:::prod-${AWS::Region}-starport-layer-bucket/*
+          - Effect: Allow
+            Principal: '*'
+            Action:
+              - s3:*
+            Resource:
+              - !Sub arn:aws:s3:::${DataBucket}/*
+          - Effect: Allow
+            Principal: '*'
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource:
+              - !Sub arn:aws:s3:::${ModelBucketName}/*
+      RouteTableIds:
+        - !Ref PrivateRouteTableSubnet0
+        - !Ref PrivateRouteTableSubnet1
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcId: !Ref Vpc
+
+  EcrVpcEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ECR Vpc Endpoint security group
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+      - SourceSecurityGroupId: !Ref AppSecurityGroup
+        IpProtocol: tcp
+        ToPort: 443
+        FromPort: 443
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-EcrVpcEndpointSecurityGroup
+
+  EcrDkrVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.dkr
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet0
+        - !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !GetAtt EcrVpcEndpointSecurityGroup.GroupId
+
+  EcrApiVpcEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.api
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet0
+        - !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !GetAtt EcrVpcEndpointSecurityGroup.GroupId
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  FargateServiceApi:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref FargateCluster
+      ServiceName: !Sub ${AWS::StackName}-api
+      DesiredCount: 2
+      LaunchType: FARGATE
+      TaskDefinition: !Ref FargateTaskDefinitionApi
+      LoadBalancers:
+        - ContainerName: !Sub ${AWS::StackName}-api
+          ContainerPort: !Ref AppIngressPort
+          TargetGroupArn: !Ref TargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref AppSecurityGroup
+          Subnets:
+            - !Ref PrivateSubnet0
+            - !Ref PrivateSubnet1
+    DependsOn:
+      - FargateCluster
+      - FargateTaskDefinitionApi
+      - LoadBalancerListener
+
+  FargateServiceWorker:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref FargateCluster
+      ServiceName: !Sub ${AWS::StackName}-worker
+      DesiredCount: !Ref WorkerTaskMinContainerCount
+      LaunchType: FARGATE
+      TaskDefinition: !Ref FargateTaskDefinitionWorker
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref AppSecurityGroup
+          Subnets:
+            - !Ref PrivateSubnet0
+            - !Ref PrivateSubnet1
+    DependsOn:
+      - FargateCluster
+      - FargateTaskDefinitionWorker
+
+  ServiceAutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: application-autoscaling.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: service-autoscaling
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - application-autoscaling:*
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:PutMetricAlarm
+                  - ecs:DescribeServices
+                  - ecs:UpdateService
+                Resource: '*'
+
+  WorkerServiceScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MinCapacity: !Ref WorkerTaskMinContainerCount
+      MaxCapacity: !Ref WorkerTaskMaxContainerCount
+      ResourceId: !Sub
+        - service/${EcsClusterName}/${EcsWorkerServiceName}
+        - EcsClusterName: !Ref FargateCluster
+          EcsWorkerServiceName: !Sub ${AWS::StackName}-worker # There is a bug in the GetAtt Service.Name call
+      RoleARN: !GetAtt ServiceAutoScalingRole.Arn
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+    DependsOn:
+      - FargateServiceWorker
+
+  WorkerServiceScaleOutPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ScaleOutPolicy
+      PolicyType: StepScaling
+      ScalingTargetId: !Ref WorkerServiceScalingTarget
+      StepScalingPolicyConfiguration:
+        AdjustmentType: ChangeInCapacity
+        Cooldown: 60
+        MetricAggregationType: Average
+        StepAdjustments:
+          - ScalingAdjustment: 1
+            MetricIntervalLowerBound: 0
+    DependsOn: WorkerServiceScalingTarget
+
+  WorkerServiceScaleInPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ScaleInPolicy
+      PolicyType: StepScaling
+      ScalingTargetId: !Ref WorkerServiceScalingTarget
+      StepScalingPolicyConfiguration:
+        AdjustmentType: ChangeInCapacity
+        Cooldown: 60
+        MetricAggregationType: Average
+        StepAdjustments:
+          - ScalingAdjustment: -1
+            MetricIntervalUpperBound: 0
+    DependsOn: WorkerServiceScalingTarget
+
+  WorkerServiceScaleOutAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      EvaluationPeriods: !Ref WorkerServiceScaleEvaluationPeriods
+      Statistic: Average
+      TreatMissingData: notBreaching
+      Threshold: !Ref WorkerServiceQueueDepthScaleOutThreshold
+      AlarmDescription: Alarm to add capacity if queue depth is high
+      Period: 60
+      AlarmActions:
+        - !Ref WorkerServiceScaleOutPolicy
+      Namespace:  AWS/SQS
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt JobQueue.QueueName
+      ComparisonOperator: GreaterThanThreshold
+      MetricName: ApproximateNumberOfMessagesVisible
+    DependsOn:
+      - FargateServiceWorker
+      - WorkerServiceScaleOutPolicy
+
+  WorkerServiceScaleInAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      EvaluationPeriods: !Ref WorkerServiceScaleEvaluationPeriods
+      Statistic: Average
+      TreatMissingData: notBreaching
+      Threshold: !Ref WorkerServiceQueueDepthScaleInThreshold
+      AlarmDescription: Alarm to reduce capacity if container queue depth is low
+      Period: 300
+      AlarmActions:
+        - !Ref WorkerServiceScaleInPolicy
+      Namespace: AWS/SQS
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt JobQueue.QueueName
+      ComparisonOperator: LessThanThreshold
+      MetricName: ApproximateNumberOfMessagesVisible
+    DependsOn:
+      - FargateServiceWorker
+      - WorkerServiceScaleInPolicy
+
+  DatabasePasswordSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      SecretString: !Ref DatabasePassword
+      Name: !Sub ${AWS::StackName}-DatabasePassword
+
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable access to the DB
+      VpcId: !Ref Vpc
+      SecurityGroupEgress:
+      - CidrIp: 0.0.0.0/0
+        IpProtocol: tcp
+        ToPort: 5432
+        FromPort: 5432
+      SecurityGroupIngress:
+        SourceSecurityGroupId: !Ref AppSecurityGroup
+        IpProtocol: tcp
+        ToPort: 5432
+        FromPort: 5432
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-DbSecurityGroup
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: App security group
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+      - SourceSecurityGroupId: !Ref AlbSecurityGroup
+        IpProtocol: tcp
+        ToPort: !Ref AppIngressPort
+        FromPort: !Ref AppIngressPort
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-AppSecurityGroup
+
+  AppSecurityGroupFromAlbIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AppSecurityGroup
+      IpProtocol: tcp
+      ToPort: !Ref AppIngressPort
+      FromPort: !Ref AppIngressPort
+      SourceSecurityGroupId: !Ref AlbSecurityGroup
+
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTP/HTTPs ingress
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+      - CidrIp: 0.0.0.0/0
+        IpProtocol: tcp
+        ToPort: !Ref AlbIngressPort
+        FromPort: !Ref AlbIngressPort
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-AlbSecurityGroup
+
+  AlbSecurityGroupToAppEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref AlbSecurityGroup
+      IpProtocol: tcp
+      ToPort: !Ref AppIngressPort
+      FromPort: !Ref AppIngressPort
+      DestinationSecurityGroupId: !Ref AppSecurityGroup
+
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Database subnet group
+      SubnetIds:
+      - !Ref PrivateSubnet0
+      - !Ref PrivateSubnet1
+      Tags:
+      - Key: Name
+        Value: !Ref AWS::StackName
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DbSecurityGroup
+      Engine: postgres
+      EngineVersion: 10.6
+      DBName: !Ref DatabaseName
+      MasterUsername: !Ref DatabaseUser
+      MasterUserPassword: !Ref DatabasePassword
+      DBInstanceClass: !Ref DatabaseInstanceClass
+      AllocatedStorage: !Ref DatabaseSize
+      StorageType: gp2
+      MultiAZ: !If [ IsProd, true, false ]
+      StorageEncrypted: true
+      CopyTagsToSnapshot: true
+      Tags:
+      - Key: Name
+        Value: !Ref AWS::StackName
+      - Key: Environment
+        Value: !Ref EnvironmentName
+    DeletionPolicy: Snapshot
+    DependsOn: DatabaseSubnetGroup
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref Vpc
+      Port: !Ref AppIngressPort
+      Protocol: !Ref AppProtocol
+      Matcher:
+        HttpCode: 200
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: /health
+      HealthCheckProtocol: !Ref AppProtocol
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      TargetGroupAttributes:
+      - Key: deregistration_delay.timeout_seconds
+        Value: 300
+      TargetType: ip
+      Tags:
+      - Key: Name
+        Value: !Ref AWS::StackName
+    DependsOn: ApplicationLoadBalancer
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets:
+        - !Ref PublicSubnet0
+        - !Ref PublicSubnet1
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+      Tags:
+      - Key: Name
+        Value: !Ref AWS::StackName
+
+  LoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: !Ref AlbIngressPort
+      Protocol: !Ref AppProtocol
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn: !Ref TargetGroup
+    DependsOn:
+    - TargetGroup
+    - ApplicationLoadBalancer
+
+  NatEip0:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+    DependsOn: VpcGatewayAttachment
+
+  NatEip1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+    DependsOn: VpcGatewayAttachment
+
+  NatGateway0:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEip0.AllocationId
+      SubnetId: !Ref PublicSubnet0
+    DependsOn: VpcGatewayAttachment
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEip1.AllocationId
+      SubnetId: !Ref PublicSubnet1
+    DependsOn: VpcGatewayAttachment
+
+  NatRoute0:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableSubnet0
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway0
+
+  NatRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableSubnet1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+
+  SubnetRouteTableAssociationNatGateway0:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet0
+      RouteTableId: !Ref PrivateRouteTableSubnet0
+
+  SubnetRouteTableAssociationNatGateway1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTableSubnet1
+
+
+Outputs:
+
+  Name:
+    Description: Stack Name
+    Value: !Ref AWS::StackName
+    Export:
+      Name: !Sub ${AWS::StackName}-Name
+
+  DatabaseSubnetGroupName:
+    Description: Db subnet group name
+    Value: !Ref DatabaseSubnetGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-DatabaseSubnetGroupName
+
+  FargateClusterName:
+    Value: !Ref FargateCluster
+    Export:
+      Name: !Sub ${AWS::StackName}-FargateClusterName
+
+  FargateClusterArn:
+    Value: !GetAtt FargateCluster.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-FargateClusterArn
+
+  FargateServiceApiArn:
+    Value: !Ref FargateServiceApi
+    Export:
+      Name: !Sub ${AWS::StackName}-FargateServiceApiArn
+
+  FargateServiceApiName:
+    Value: !GetAtt FargateServiceApi.Name
+    Export:
+      Name: !Sub ${AWS::StackName}-FargateServiceApiName
+
+  FargateServiceWorkerArn:
+    Value: !Ref FargateServiceWorker
+    Export:
+      Name: !Sub ${AWS::StackName}-FargateServiceWorkerArn
+
+  # There is a CFN bug if you have multiple services in the same template, the
+  # name attribute is not correct, so we are manually setting it.
+  FargateServiceWorkerName:
+    Value: !Sub ${AWS::StackName}-worker
+    Export:
+      Name: !Sub ${AWS::StackName}-FargateServiceWorkerName
+
+  DataBucketName:
+    Value: !Ref DataBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-DataBucket
+
+  DataBucketArn:
+    Value: !GetAtt DataBucket.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-DataBucketArn
+
+  DataTempBucketName:
+    Value: !Ref DataTempBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-DataTempBucket
+
+  DataTempBucketArn:
+    Value: !GetAtt DataTempBucket.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-DataTempBucketArn
+
+  DatabaseName:
+    Value: !Ref Database
+    Export:
+      Name: !Sub ${AWS::StackName}-DatabaseName
+
+  DatabaseEndpoint:
+    Value: !GetAtt Database.Endpoint.Address
+    Export:
+      Name: !Sub ${AWS::StackName}-DatabaseEndpoint
+
+  DatabasePort:
+    Value: !GetAtt Database.Endpoint.Port
+    Export:
+      Name: !Sub ${AWS::StackName}-DatabasePort
+
+  DatabasePasswordSecretArn:
+    Value: !Ref DatabasePasswordSecret
+    Export:
+      Name: !Sub ${AWS::StackName}-DatabasePasswordSecretArn
+
+  DatabasePasswordSecretName:
+    Value: !Sub ${AWS::StackName}-DatabasePassword
+    Export:
+      Name: !Sub ${AWS::StackName}-DatabasePasswordSecretName
+
+  ApplicationLoadBalancerArn:
+    Value: !Ref ApplicationLoadBalancer
+    Export:
+      Name: !Sub ${AWS::StackName}-ApplicationLoadBalancerArn
+
+  ApplicationLoadBalancerDnsName:
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub ${AWS::StackName}-ApplicationLoadBalancerDnsName
+
