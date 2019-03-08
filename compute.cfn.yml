@@ -7,6 +7,10 @@ Description: Fargate Compute Example
 
 Parameters:
 
+  DeploymentId:
+    Description: Deployment id
+    Type: String
+
   EnvironmentName:
     Description: Environment name, either dev or prod
     Type: String
@@ -478,6 +482,68 @@ Resources:
                   ForAnyValue:StringLike:
                     secretsmanager:VersionStage: AWSCURRENT
                 Resource: !Ref DatabasePasswordSecret
+
+  # This is the role assumed by CodePipeline in the build account to deploy api changes
+  DeployServiceApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: !Sub ${AWS::StackName}-deploy-api-service-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              AWS: !Ref BuildAccountId
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: codepipeline-ecs-deploy-api
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  - ecs:List*
+                  - ecs:Describe*
+                  - ecs:RegisterTaskDefinition
+                  - ecs:UpdateService
+                  - iam:PassRole
+
+  # This is the role assumed by CodePipeline in the build account to deploy worker changes
+  DeployServiceWorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: !Sub ${AWS::StackName}-deploy-worker-service-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              AWS: !Ref BuildAccountId
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: codepipeline-ecs-deploy-worker
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  - ecs:List*
+                  - ecs:Describe*
+                  - ecs:RegisterTaskDefinition
+                  - ecs:UpdateService
+                  - iam:PassRole
 
   FargateTaskDefinitionApi:
     Type: AWS::ECS::TaskDefinition
@@ -1110,6 +1176,12 @@ Outputs:
     Value: !Ref AWS::StackName
     Export:
       Name: !Sub ${AWS::StackName}-Name
+
+  DeploymentId:
+    Description: Deployment Id
+    Value: !Ref DeploymentId
+    Export:
+      Name: !Sub ${AWS::StackName}-DeploymentId
 
   DatabaseSubnetGroupName:
     Description: Db subnet group name
