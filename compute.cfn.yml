@@ -235,6 +235,8 @@ Resources:
           Value: !Ref AWS::StackName
         - Key: Environment
           Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   JobCompletedQueue:
     Type: AWS::SQS::Queue
@@ -247,6 +249,8 @@ Resources:
           Value: !Ref AWS::StackName
         - Key: Environment
           Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   QueueShareStatsPolicy:
     Type: AWS::SQS::QueuePolicy
@@ -275,6 +279,8 @@ Resources:
         Value: !Ref AWS::StackName
       - Key: Environment
         Value: !Ref EnvironmentName
+      - Key: DeploymentId
+        Value: !Ref DeploymentId
 
   PublicSubnet0:
     Type: AWS::EC2::Subnet
@@ -295,10 +301,12 @@ Resources:
       CidrBlock: !FindInMap [ CidrMap, Public1, Cidr ]
       AvailabilityZone: !Ref AvailabilityZone1
       Tags:
-      - Key: Name
-        Value: !Sub ${AWS::StackName}-PublicSubnet1
-      - Key: Environment
-        Value: !Ref EnvironmentName
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-PublicSubnet1
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   PrivateSubnet0:
     Type: AWS::EC2::Subnet
@@ -307,10 +315,12 @@ Resources:
       CidrBlock: !FindInMap [ CidrMap, Private0, Cidr ]
       AvailabilityZone: !Ref AvailabilityZone0
       Tags:
-      - Key: Name
-        Value: !Sub ${AWS::StackName}-PrivateSubnet0
-      - Key: Environment
-        Value: !Ref EnvironmentName
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-PrivateSubnet0
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   PrivateSubnet1:
     Type: AWS::EC2::Subnet
@@ -319,10 +329,12 @@ Resources:
       CidrBlock: !FindInMap [ CidrMap, Private1, Cidr ]
       AvailabilityZone: !Ref AvailabilityZone1
       Tags:
-      - Key: Name
-        Value: !Sub ${AWS::StackName}-PrivateSubnet1
-      - Key: Environment
-        Value: !Ref EnvironmentName
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-PrivateSubnet1
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
@@ -330,6 +342,10 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${AWS::StackName}-igw
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   VpcGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
@@ -342,24 +358,36 @@ Resources:
     Properties:
       VpcId: !Ref Vpc
       Tags:
-      - Key: Name
-        Value: !Sub ${AWS::StackName}-public-route
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-public-route
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   PrivateRouteTableSubnet0:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref Vpc
       Tags:
-      - Key: Name
-        Value: !Sub ${AWS::StackName}-private-route-0
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-private-route-0
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   PrivateRouteTableSubnet1:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref Vpc
       Tags:
-      - Key: Name
-        Value: !Sub ${AWS::StackName}-private-route-1
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-private-route-1
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   PublicRoute:
     Type: AWS::EC2::Route
@@ -397,6 +425,11 @@ Resources:
     Type: AWS::S3::Bucket
     DeletionPolicy: Delete
     Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -406,6 +439,11 @@ Resources:
     Type: AWS::S3::Bucket
     DeletionPolicy: Delete
     Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -565,15 +603,11 @@ Resources:
           PolicyDocument:
             Version: 2012-10-17
             Statement:
-              - Resource: !Sub arn:aws:s3:::${DeploymentId}-${EnvironmentName}-${AWS::StackName}-worker-build/*
+              - Resource: !Sub arn:aws:s3:::${DeploymentId}-${EnvironmentName}-${AWS::StackName}-api-build/*
                 Effect: Allow
                 Action:
                   - s3:GetObject
                   - s3:GetObjectVersion
-                Condition:
-                  StringEquals:
-                    s3:ExistingObjectTag/DeploymentId: !Ref DeploymentId
-                    s3:ExistingObjectTag/EnvironmentName: !Ref EnvironmentName
 
   # This is the role assumed by CodePipeline in the build account to deploy worker changes
   DeployServiceWorkerRole:
@@ -614,10 +648,6 @@ Resources:
                 Action:
                   - s3:GetObject
                   - s3:GetObjectVersion
-                Condition:
-                  StringEquals:
-                    s3:ExistingObjectTag/DeploymentId: !Ref DeploymentId
-                    s3:ExistingObjectTag/EnvironmentName: !Ref EnvironmentName
 
   FargateTaskDefinitionApi:
     Type: AWS::ECS::TaskDefinition
@@ -746,8 +776,12 @@ Resources:
         ToPort: 443
         FromPort: 443
       Tags:
-      - Key: Name
-        Value: !Sub ${AWS::StackName}-SecretsManagerVpcEndpointSecurityGroup
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-SecretsManagerVpcEndpointSecurityGroup
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   CloudWatchLogsVpcEndpointSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -760,8 +794,12 @@ Resources:
         ToPort: 443
         FromPort: 443
       Tags:
-      - Key: Name
-        Value: !Sub ${AWS::StackName}-CloudWatchLogsVpcEndpointSecurityGroup
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-CloudWatchLogsVpcEndpointSecurityGroup
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   SqsVpcEndpointSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -774,8 +812,12 @@ Resources:
         ToPort: 443
         FromPort: 443
       Tags:
-      - Key: Name
-        Value: !Sub ${AWS::StackName}-SqsVpcEndpointSecurityGroup
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-SqsVpcEndpointSecurityGroup
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   SqsVpcEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -859,8 +901,12 @@ Resources:
         ToPort: 443
         FromPort: 443
       Tags:
-      - Key: Name
-        Value: !Sub ${AWS::StackName}-EcrVpcEndpointSecurityGroup
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-EcrVpcEndpointSecurityGroup
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   EcrDkrVpcEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -1079,8 +1125,12 @@ Resources:
         ToPort: 5432
         FromPort: 5432
       Tags:
-      - Key: Name
-        Value: !Sub ${AWS::StackName}-DbSecurityGroup
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-DbSecurityGroup
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   NeptuneSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -1098,8 +1148,12 @@ Resources:
         ToPort: 8182
         FromPort: 8182
       Tags:
-      - Key: Name
-        Value: !Sub ${AWS::StackName}-NeptuneSecurityGroup
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-NeptuneSecurityGroup
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   AppSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -1112,8 +1166,12 @@ Resources:
         ToPort: !Ref AppIngressPort
         FromPort: !Ref AppIngressPort
       Tags:
-      - Key: Name
-        Value: !Sub ${AWS::StackName}-AppSecurityGroup
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-AppSecurityGroup
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   AppSecurityGroupFromAlbIngress:
     Type: AWS::EC2::SecurityGroupIngress
@@ -1135,8 +1193,12 @@ Resources:
         ToPort: !Ref AlbIngressPort
         FromPort: !Ref AlbIngressPort
       Tags:
-      - Key: Name
-        Value: !Sub ${AWS::StackName}-AlbSecurityGroup
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-AlbSecurityGroup
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   AlbSecurityGroupToAppEgress:
     Type: AWS::EC2::SecurityGroupEgress
@@ -1155,8 +1217,12 @@ Resources:
       - !Ref PrivateSubnet0
       - !Ref PrivateSubnet1
       Tags:
-      - Key: Name
-        Value: !Ref AWS::StackName
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   Database:
     Type: AWS::RDS::DBInstance
@@ -1176,10 +1242,12 @@ Resources:
       StorageEncrypted: true
       CopyTagsToSnapshot: true
       Tags:
-      - Key: Name
-        Value: !Ref AWS::StackName
-      - Key: Environment
-        Value: !Ref EnvironmentName
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
     DeletionPolicy: Snapshot
     DependsOn: DatabaseSubnetGroup
 
@@ -1191,8 +1259,12 @@ Resources:
       - !Ref PrivateSubnet0
       - !Ref PrivateSubnet1
       Tags:
-      - Key: Name
-        Value: !Ref AWS::StackName
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   NeptuneCluster:
     Type: AWS::Neptune::DBCluster
@@ -1202,6 +1274,13 @@ Resources:
       StorageEncrypted: true
       VpcSecurityGroupIds:
         - !Ref NeptuneSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   NeptuneInstance0:
     Type: AWS::Neptune::DBInstance
@@ -1210,8 +1289,12 @@ Resources:
       DBInstanceClass: !Ref NeptuneInstanceClass
       DBSubnetGroupName: !Ref NeptuneSubnetGroup
       Tags:
-      - Key: Name
-        Value: !Ref AWS::StackName
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   NeptuneInstance1:
     Type: AWS::Neptune::DBInstance
@@ -1221,8 +1304,12 @@ Resources:
       DBInstanceClass: !Ref NeptuneInstanceClass
       DBSubnetGroupName: !Ref NeptuneSubnetGroup
       Tags:
-      - Key: Name
-        Value: !Ref AWS::StackName
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -1242,8 +1329,12 @@ Resources:
         Value: 300
       TargetType: ip
       Tags:
-      - Key: Name
-        Value: !Ref AWS::StackName
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
     DependsOn: ApplicationLoadBalancer
 
   ApplicationLoadBalancer:
@@ -1255,8 +1346,12 @@ Resources:
       SecurityGroups:
         - !Ref AlbSecurityGroup
       Tags:
-      - Key: Name
-        Value: !Ref AWS::StackName
+        - Key: Name
+          Value: !Ref AWS::StackName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
 
   LoadBalancerListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
