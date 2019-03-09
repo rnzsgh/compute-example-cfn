@@ -75,6 +75,11 @@ Resources:
     DeletionPolicy: Delete
     Properties:
       BucketName: !Sub ${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-api-build
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -108,6 +113,11 @@ Resources:
     DeletionPolicy: Delete
     Properties:
       BucketName: !Sub ${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-worker-build
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
