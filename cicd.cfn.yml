@@ -74,6 +74,11 @@ Resources:
     Type: AWS::S3::Bucket
     DeletionPolicy: Delete
     Properties:
+      BucketName: !Sub ${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-api-build
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
       Tags:
         - Key: DeploymentId
           Value: !Ref DeploymentId
@@ -84,10 +89,29 @@ Resources:
         - Key: Type
           Value: Api
 
+  CodePipelineApiArtifactBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CodePipelineApiArtifactBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource: !Sub arn:aws:s3:::${CodePipelineApiArtifactBucket}/*
+            Principal:
+              AWS: !Sub arn:aws:iam::${DeploymentAccountId}:root
+
   CodePipelineWorkerArtifactBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Delete
     Properties:
+      BucketName: !Sub ${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-worker-build
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
       Tags:
         - Key: DeploymentId
           Value: !Ref DeploymentId
@@ -97,6 +121,20 @@ Resources:
           Value: !Ref EnvironmentName
         - Key: Type
           Value: Worker
+
+  CodePipelineWorkerArtifactBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CodePipelineWorkerArtifactBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource: !Sub arn:aws:s3:::${CodePipelineWorkerArtifactBucket}/*
+            Principal:
+              AWS: !Sub arn:aws:iam::${DeploymentAccountId}:root
 
   LogGroupBuildApi:
     Type: AWS::Logs::LogGroup
@@ -239,17 +277,6 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                   - ecr:GetAuthorizationToken
-              - Resource: "*"
-                Effect: Allow
-                Action:
-                  - ec2:CreateNetworkInterface
-                  - ec2:DescribeDhcpOptions
-                  - ec2:DescribeNetworkInterfaces
-                  - ec2:DeleteNetworkInterface
-                  - ec2:DescribeSubnets
-                  - ec2:DescribeSecurityGroups
-                  - ec2:DescribeVpcs
-                  - ec2:CreateNetworkInterfacePermission
               - Resource: !Sub arn:aws:s3:::${CodePipelineApiArtifactBucket}/*
                 Effect: Allow
                 Action:
@@ -262,6 +289,12 @@ Resources:
                   - s3:GetObject
                   - s3:PutObject
                   - s3:GetObjectVersion
+              - Resource: !Sub arn:aws:ecr:${AWS::Region}:${BaseEcrImageAccountId}:repository/docker-golang-base
+                Effect: Allow
+                Action:
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:BatchCheckLayerAvailability
               - Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${EcrDockerRepositoryApi}
                 Effect: Allow
                 Action:
@@ -339,7 +372,7 @@ Resources:
                 - Name: BuildOutput
               RunOrder: 1
     DependsOn:
-      - CodePipelineWorkerArtifactBucket
+      - CodePipelineWorkerArtifactBucketPolicy
       - CodeBuildProjectWorker
       - CodePipelineServiceWorkerRole
 
@@ -399,7 +432,7 @@ Resources:
                 - Name: BuildOutput
               RunOrder: 1
     DependsOn:
-      - CodePipelineApiArtifactBucket
+      - CodePipelineApiArtifactBucketPolicy
       - CodeBuildProjectApi
       - CodePipelineServiceApiRole
 
