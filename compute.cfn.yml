@@ -121,6 +121,12 @@ Parameters:
     Description: Database instance class
     ConstraintDescription: DB instance class not supported
 
+  NeptuneInstanceClass:
+    Default: db.r5.large
+    Type: String
+    Description: Neptune instance class
+    ConstraintDescription: Neptune instance class not supported
+
   AlbIngressPort:
     Description: The ALB ingress port used by security groups
     Type: Number
@@ -577,16 +583,16 @@ Resources:
               Value: !Ref DatabaseUser
             - Name: DB_PASSWORD_SECRET_NAME
               Value: !Sub ${AWS::StackName}-DatabasePassword
-            - Name: SQS_JOB_QUEUE_NAME
-              Value: !GetAtt JobQueue.QueueName
-            - Name: SQS_JOB_COMPLETED_QUEUE_NAME
-              Value: !GetAtt JobCompletedQueue.QueueName
-            - Name: AWS_ACCOUNT_ID
-              Value: !Ref AWS::AccountId
+            - Name: SQS_JOB_QUEUE_URL
+              Value: !Ref JobQueue
+            - Name: SQS_JOB_COMPLETED_QUEUE_URL
+              Value: !Ref JobCompletedQueue
             - Name: AWS_REGION
               Value: !Ref AWS::Region
             - Name: STACK_NAME
               Value: !Ref AWS::StackName
+            - Name: DEPLOYMENT_ID
+              Value: !Ref DeploymentId
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -624,15 +630,16 @@ Resources:
               Value: !Ref DatabaseUser
             - Name: DB_PASSWORD_SECRET_NAME
               Value: !Sub ${AWS::StackName}-DatabasePassword
-            - Name: SQS_JOB_QUEUE_NAME
-              Value: !GetAtt JobQueue.QueueName
-            - Name: SQS_JOB_COMPLETED_QUEUE_NAME
-            - Name: AWS_ACCOUNT_ID
-              Value: !Ref AWS::AccountId
+            - Name: SQS_JOB_QUEUE_URL
+              Value: !Ref JobQueue
+            - Name: SQS_JOB_COMPLETED_QUEUE_URL
+              Value: !Ref JobCompletedQueue
             - Name: AWS_REGION
               Value: !Ref AWS::Region
             - Name: STACK_NAME
               Value: !Ref AWS::StackName
+            - Name: DEPLOYMENT_ID
+              Value: !Ref DeploymentId
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -987,6 +994,25 @@ Resources:
       - Key: Name
         Value: !Sub ${AWS::StackName}-DbSecurityGroup
 
+  NeptuneSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable access to Neptune
+      VpcId: !Ref Vpc
+      SecurityGroupEgress:
+      - CidrIp: 0.0.0.0/0
+        IpProtocol: tcp
+        ToPort: 8182
+        FromPort: 8182
+      SecurityGroupIngress:
+        SourceSecurityGroupId: !Ref AppSecurityGroup
+        IpProtocol: tcp
+        ToPort: 8182
+        FromPort: 8182
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-NeptuneSecurityGroup
+
   AppSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -1068,6 +1094,45 @@ Resources:
         Value: !Ref EnvironmentName
     DeletionPolicy: Snapshot
     DependsOn: DatabaseSubnetGroup
+
+  NeptuneSubnetGroup:
+    Type: AWS::Neptune::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Neptune subnet group
+      SubnetIds:
+      - !Ref PrivateSubnet0
+      - !Ref PrivateSubnet1
+      Tags:
+      - Key: Name
+        Value: !Ref AWS::StackName
+
+  NeptuneCluster:
+    Type: AWS::Neptune::DBCluster
+    Properties:
+      DBSubnetGroupName: !Ref NeptuneSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref NeptuneSecurityGroup
+
+  NeptuneInstance0:
+    Type: AWS::Neptune::DBInstance
+    Properies:
+      DBClusterIdentifier: !Ref NeptuneCluster
+      DBInstanceClass: !Ref NeptuneInstanceClass
+      DBSubnetGroupName: !Ref NeptuneSubnetGroup
+      Tags:
+      - Key: Name
+        Value: !Ref AWS::StackName
+
+  NeptuneInstance1:
+    Type: AWS::Neptune::DBInstance
+    Condition: IsProd
+    Properies:
+      DBClusterIdentifier: !Ref NeptuneCluster
+      DBInstanceClass: !Ref NeptuneInstanceClass
+      DBSubnetGroupName: !Ref NeptuneSubnetGroup
+      Tags:
+      - Key: Name
+        Value: !Ref AWS::StackName
 
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
