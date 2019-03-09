@@ -122,7 +122,7 @@ Parameters:
     ConstraintDescription: DB instance class not supported
 
   NeptuneInstanceClass:
-    Default: db.r5.large
+    Default: db.r4.large
     Type: String
     Description: Neptune instance class
     ConstraintDescription: Neptune instance class not supported
@@ -227,6 +227,7 @@ Resources:
   JobQueue:
     Type: AWS::SQS::Queue
     Properties:
+      QueueName: !Sub ${DeploymentId}-${EnvironmentName}-${AWS::StackName}-job-queue
       VisibilityTimeout: !Ref JobQueueVisibilityTimeout
       KmsMasterKeyId: alias/aws/sqs
       Tags:
@@ -238,6 +239,7 @@ Resources:
   JobCompletedQueue:
     Type: AWS::SQS::Queue
     Properties:
+      QueueName: !Sub ${DeploymentId}-${EnvironmentName}-${AWS::StackName}-job-completed-queue
       VisibilityTimeout: !Ref JobCompletedQueueVisibilityTimeout
       KmsMasterKeyId: alias/aws/sqs
       Tags:
@@ -245,6 +247,22 @@ Resources:
           Value: !Ref AWS::StackName
         - Key: Environment
           Value: !Ref EnvironmentName
+
+  QueueShareStatsPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - !Ref BuildAccountId
+            Action:
+              - sqs:GetQueueAttributes
+      Queues:
+        - !Ref JobQueue
+        - !Ref JobCompletedQueue
 
   Vpc:
     Type: AWS::EC2::VPC
@@ -378,10 +396,20 @@ Resources:
   DataBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Delete
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
 
   DataTempBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Delete
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
 
   FargateCluster:
     Type: AWS::ECS::Cluster
@@ -427,6 +455,13 @@ Resources:
                   - sqs:ReceiveMessage
                   - sqs:SendMessage
                 Resource: !GetAtt JobCompletedQueue.Arn
+        - PolicyName: neptune
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: neptune-db:*
+                Resource: !Sub arn:aws:neptune-db:us-east-1:${AWS::AccountId}:${NeptuneCluster.ClusterResourceId}/*
         - PolicyName: get-secret
           PolicyDocument:
             Version: 2012-10-17
@@ -476,6 +511,13 @@ Resources:
               - Effect: Allow
                 Action: s3:*
                 Resource: !GetAtt DataBucket.Arn
+        - PolicyName: neptune
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: neptune-db:*
+                Resource: !Sub arn:aws:neptune-db:us-east-1:${AWS::AccountId}:${NeptuneCluster.ClusterResourceId}/*
         - PolicyName: get-secret
           PolicyDocument:
             Version: 2012-10-17
@@ -519,6 +561,19 @@ Resources:
                   - ecs:RegisterTaskDefinition
                   - ecs:UpdateService
                   - iam:PassRole
+        - PolicyName: codepipeline-artifact-bucket
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Resource: !Sub arn:aws:s3:::${DeploymentId}-${EnvironmentName}-${AWS::StackName}-worker-build/*
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Condition:
+                  StringEquals:
+                    s3:ExistingObjectTag/DeploymentId: !Ref DeploymentId
+                    s3:ExistingObjectTag/EnvironmentName: !Ref EnvironmentName
 
   # This is the role assumed by CodePipeline in the build account to deploy worker changes
   DeployServiceWorkerRole:
@@ -550,6 +605,19 @@ Resources:
                   - ecs:RegisterTaskDefinition
                   - ecs:UpdateService
                   - iam:PassRole
+        - PolicyName: codepipeline-artifact-bucket
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Resource: !Sub arn:aws:s3:::${DeploymentId}-${EnvironmentName}-${AWS::StackName}-worker-build/*
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Condition:
+                  StringEquals:
+                    s3:ExistingObjectTag/DeploymentId: !Ref DeploymentId
+                    s3:ExistingObjectTag/EnvironmentName: !Ref EnvironmentName
 
   FargateTaskDefinitionApi:
     Type: AWS::ECS::TaskDefinition
@@ -583,6 +651,16 @@ Resources:
               Value: !Ref DatabaseUser
             - Name: DB_PASSWORD_SECRET_NAME
               Value: !Sub ${AWS::StackName}-DatabasePassword
+            - Name: GRAPH_DB_ENDPOINT
+              Value: !GetAtt NeptuneCluster.Endpoint
+            - Name: GRAPH_DB_READ_ENDPOINT
+              Value: !GetAtt NeptuneCluster.ReadEndpoint
+            - Name: GRAPH_DB_PORT
+              Value: !GetAtt NeptuneCluster.Port
+            - Name: GRAPH_DB_RESOURCE_NAME
+              Value: !Ref NeptuneCluster
+            - Name: GRAPH_DB_RESOURCE_ID
+              Value: !GetAtt NeptuneCluster.ClusterResourceId
             - Name: SQS_JOB_QUEUE_URL
               Value: !Ref JobQueue
             - Name: SQS_JOB_COMPLETED_QUEUE_URL
@@ -630,6 +708,16 @@ Resources:
               Value: !Ref DatabaseUser
             - Name: DB_PASSWORD_SECRET_NAME
               Value: !Sub ${AWS::StackName}-DatabasePassword
+            - Name: GRAPH_DB_ENDPOINT
+              Value: !GetAtt NeptuneCluster.Endpoint
+            - Name: GRAPH_DB_READ_ENDPOINT
+              Value: !GetAtt NeptuneCluster.ReadEndpoint
+            - Name: GRAPH_DB_PORT
+              Value: !GetAtt NeptuneCluster.Port
+            - Name: GRAPH_DB_RESOURCE_NAME
+              Value: !Ref NeptuneCluster
+            - Name: GRAPH_DB_RESOURCE_ID
+              Value: !GetAtt NeptuneCluster.ClusterResourceId
             - Name: SQS_JOB_QUEUE_URL
               Value: !Ref JobQueue
             - Name: SQS_JOB_COMPLETED_QUEUE_URL
@@ -1110,12 +1198,14 @@ Resources:
     Type: AWS::Neptune::DBCluster
     Properties:
       DBSubnetGroupName: !Ref NeptuneSubnetGroup
+      IamAuthEnabled: true
+      StorageEncrypted: true
       VpcSecurityGroupIds:
         - !Ref NeptuneSecurityGroup
 
   NeptuneInstance0:
     Type: AWS::Neptune::DBInstance
-    Properies:
+    Properties:
       DBClusterIdentifier: !Ref NeptuneCluster
       DBInstanceClass: !Ref NeptuneInstanceClass
       DBSubnetGroupName: !Ref NeptuneSubnetGroup
@@ -1126,7 +1216,7 @@ Resources:
   NeptuneInstance1:
     Type: AWS::Neptune::DBInstance
     Condition: IsProd
-    Properies:
+    Properties:
       DBClusterIdentifier: !Ref NeptuneCluster
       DBInstanceClass: !Ref NeptuneInstanceClass
       DBSubnetGroupName: !Ref NeptuneSubnetGroup
@@ -1340,4 +1430,29 @@ Outputs:
     Value: !GetAtt ApplicationLoadBalancer.DNSName
     Export:
       Name: !Sub ${AWS::StackName}-ApplicationLoadBalancerDnsName
+
+  NeptuneClusterName:
+    Value: !Ref NeptuneCluster
+    Export:
+      Name: !Sub ${AWS::StackName}-NeptuneClusterName
+
+  NeptuneClusterEndpoint:
+    Value: !GetAtt NeptuneCluster.Endpoint
+    Export:
+      Name: !Sub ${AWS::StackName}-NeptuneClusterEndpoint
+
+  NeptuneClusterReadEndpoint:
+    Value: !GetAtt NeptuneCluster.ReadEndpoint
+    Export:
+      Name: !Sub ${AWS::StackName}-NeptuneClusterReadEndpoint
+
+  NeptuneClusterPort:
+    Value: !GetAtt NeptuneCluster.Port
+    Export:
+      Name: !Sub ${AWS::StackName}-NeptuneClusterPort
+
+  NeptuneClusterResourceId:
+    Value: !GetAtt NeptuneCluster.ClusterResourceId
+    Export:
+      Name: !Sub ${AWS::StackName}-NeptuneClusterResourceId
 
