@@ -28,6 +28,10 @@ Parameters:
     Description: The AWS customer build destination account id
     Type: String
 
+  BaseEcrImageAccountId:
+    Description: The base AWS ECR image account id
+    Type: String
+
   ModelBucketName:
     Description: The bucket to pull the models from
     Type: String
@@ -154,6 +158,10 @@ Resources:
             Value: !Ref AWS::AccountId
           - Name: DEPLOYMENT_ACCOUNT_ID
             Value: !Ref DeploymentAccountId
+          - Name: BASE_ECR_IMAGE_ACCOUNT_ID
+            Value: !Ref BaseEcrImageAccountId
+          - Name: DEPLOYMENT_ID
+            Value: !Ref DeploymentId
       Name: !Sub ${AWS::StackName}-api
       ServiceRole: !Ref CodeBuildServiceRole
       LogsConfig:
@@ -188,7 +196,11 @@ Resources:
             Value: !Ref AWS::AccountId
           - Name: DEPLOYMENT_ACCOUNT_ID
             Value: !Ref DeploymentAccountId
-      Name: !Sub ${AWS::StackName}-api
+          - Name: BASE_ECR_IMAGE_ACCOUNT_ID
+            Value: !Ref BaseEcrImageAccountId
+          - Name: DEPLOYMENT_ID
+            Value: !Ref DeploymentId
+      Name: !Sub ${AWS::StackName}-worker
       ServiceRole: !Ref CodeBuildServiceRole
       LogsConfig:
         CloudWatchLogs:
@@ -313,7 +325,7 @@ Resources:
         - Name: Deploy
           Actions:
             - Name: Deploy
-              RoleArn: !Sub arn:aws:iam::${DeploymentAccountId}:role/${DeploymentStackName}-deploy-api-service-role
+              RoleArn: !Sub arn:aws:iam::${DeploymentAccountId}:role/${DeploymentStackName}-deploy-worker-service-role
               ActionTypeId:
                 Category: Deploy
                 Owner: AWS
@@ -465,7 +477,7 @@ Resources:
                   - s3:GetObject
                   - s3:GetObjectVersion
                   - s3:GetBucketVersioning
-              - Resource: !Sub arn:aws:iam::${DeploymentAccountId}:role/${DeploymentStackName}-deploy-worker-service-role
+              - Resource: !Sub arn:aws:iam::${DeploymentAccountId}:role/${DeploymentStackName}-deploy-api-service-role
                 Effect: Allow
                 Action:
                   - sts:AssumeRole
