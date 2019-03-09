@@ -606,8 +606,8 @@ Resources:
               - Resource: !Sub arn:aws:s3:::${DeploymentId}-${EnvironmentName}-${AWS::StackName}-api-build/*
                 Effect: Allow
                 Action:
-                  - s3:GetObject
-                  - s3:GetObjectVersion
+                  - s3:Get*
+                  - s3:List*
 
   # This is the role assumed by CodePipeline in the build account to deploy worker changes
   DeployServiceWorkerRole:
@@ -646,8 +646,8 @@ Resources:
               - Resource: !Sub arn:aws:s3:::${DeploymentId}-${EnvironmentName}-${AWS::StackName}-worker-build/*
                 Effect: Allow
                 Action:
-                  - s3:GetObject
-                  - s3:GetObjectVersion
+                  - s3:Get*
+                  - s3:List*
 
   FargateTaskDefinitionApi:
     Type: AWS::ECS::TaskDefinition
