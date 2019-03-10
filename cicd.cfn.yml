@@ -116,7 +116,7 @@ Resources:
         - Key: Type
           Value: Worker
 
-  LogGroup#CodePipeBuildApi:
+  LogGroupBuildApi:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /app/${AWS::StackName}/build-api
@@ -340,7 +340,6 @@ Resources:
                 - Name: BuildOutput
               RunOrder: 1
     DependsOn:
-      - CodePipelineWorkerArtifactBucketPolicy
       - CodeBuildProjectWorker
       - CodePipelineServiceWorkerRole
 
@@ -384,7 +383,6 @@ Resources:
                 - Name: BuildOutput
               RunOrder: 1
     DependsOn:
-      - CodePipelineApiArtifactBucketPolicy
       - CodeBuildProjectApi
       - CodePipelineServiceApiRole
 
