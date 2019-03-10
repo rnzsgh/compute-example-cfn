@@ -74,7 +74,6 @@ Resources:
     Type: AWS::S3::Bucket
     DeletionPolicy: Delete
     Properties:
-      BucketName: !Sub ${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-api-build
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -94,25 +93,10 @@ Resources:
         - Key: Type
           Value: Api
 
-  CodePipelineApiArtifactBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref CodePipelineApiArtifactBucket
-      PolicyDocument:
-        Statement:
-          - Effect: Allow
-            Action:
-              - s3:GetObject
-              - s3:GetObjectVersion
-            Resource: !Sub arn:aws:s3:::${CodePipelineApiArtifactBucket}/*
-            Principal:
-              AWS: !Sub arn:aws:iam::${DeploymentAccountId}:root
-
-  CodePipelineWorkerArtifactBucket:
+  CodePipe#CodePipelineWorkerArtifactBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Delete
     Properties:
-      BucketName: !Sub ${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-worker-build
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -132,21 +116,7 @@ Resources:
         - Key: Type
           Value: Worker
 
-  CodePipelineWorkerArtifactBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref CodePipelineWorkerArtifactBucket
-      PolicyDocument:
-        Statement:
-          - Effect: Allow
-            Action:
-              - s3:GetObject
-              - s3:GetObjectVersion
-            Resource: !Sub arn:aws:s3:::${CodePipelineWorkerArtifactBucket}/*
-            Principal:
-              AWS: !Sub arn:aws:iam::${DeploymentAccountId}:root
-
-  LogGroupBuildApi:
+  LogGroup#CodePipeBuildApi:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /app/${AWS::StackName}/build-api
@@ -159,6 +129,7 @@ Resources:
   EcrDockerRepositoryApi:
     Type: AWS::ECR::Repository
     Properties:
+      RepositoryName: !Sub ${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-api
       RepositoryPolicyText:
         Version: 2012-10-17
         Statement:
@@ -175,6 +146,7 @@ Resources:
   EcrDockerRepositoryWorker:
     Type: AWS::ECR::Repository
     Properties:
+      RepositoryName: !Sub ${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-worker
       RepositoryPolicyText:
         Version: 2012-10-17
         Statement:
@@ -210,6 +182,8 @@ Resources:
             Value: !Ref BaseEcrImageAccountId
           - Name: DEPLOYMENT_ID
             Value: !Ref DeploymentId
+          - Name: DEPLOYMENT_BUCKET_NAME
+            Value: !Sub ${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-api
       Name: !Sub ${AWS::StackName}-api
       ServiceRole: !Ref CodeBuildServiceRole
       LogsConfig:
@@ -248,6 +222,8 @@ Resources:
             Value: !Ref BaseEcrImageAccountId
           - Name: DEPLOYMENT_ID
             Value: !Ref DeploymentId
+          - Name: DEPLOYMENT_BUCKET_NAME
+            Value: !Sub ${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-worker
       Name: !Sub ${AWS::StackName}-worker
       ServiceRole: !Ref CodeBuildServiceRole
       LogsConfig:
@@ -315,16 +291,14 @@ Resources:
                   - ecr:InitiateLayerUpload
                   - ecr:UploadLayerPart
                   - ecr:CompleteLayerUpload
-              - Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${EcrDockerRepositoryWorker}
+              - Resource: !Sub arn:aws:s3:::${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-api/*
                 Effect: Allow
                 Action:
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:BatchGetImage
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:PutImage
-                  - ecr:InitiateLayerUpload
-                  - ecr:UploadLayerPart
-                  - ecr:CompleteLayerUpload
+                  - s3:PutObject
+              - Resource: !Sub arn:aws:s3:::${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-worker/*
+                Effect: Allow
+                Action:
+                  - s3:PutObject
 
   CodePipelineWorker:
     Type: AWS::CodePipeline::Pipeline
@@ -363,22 +337,6 @@ Resources:
               InputArtifacts:
                 - Name: App
               OutputArtifacts:
-                - Name: BuildOutput
-              RunOrder: 1
-        - Name: Deploy
-          Actions:
-            - Name: Deploy
-              RoleArn: !Sub arn:aws:iam::${DeploymentAccountId}:role/${DeploymentStackName}-deploy-worker-service-role
-              ActionTypeId:
-                Category: Deploy
-                Owner: AWS
-                Version: 1
-                Provider: ECS
-              Configuration:
-                ClusterName: !Ref DeploymentStackName
-                ServiceName: !Sub ${DeploymentStackName}-worker
-                FileName: images.json
-              InputArtifacts:
                 - Name: BuildOutput
               RunOrder: 1
     DependsOn:
@@ -425,22 +383,6 @@ Resources:
               OutputArtifacts:
                 - Name: BuildOutput
               RunOrder: 1
-        - Name: Deploy
-          Actions:
-            - Name: Deploy
-              RoleArn: !Sub arn:aws:iam::${DeploymentAccountId}:role/${DeploymentStackName}-deploy-api-service-role
-              ActionTypeId:
-                Category: Deploy
-                Owner: AWS
-                Version: 1
-                Provider: ECS
-              Configuration:
-                ClusterName: !Ref DeploymentStackName
-                ServiceName: !Sub ${DeploymentStackName}-worker
-                FileName: images.json
-              InputArtifacts:
-                - Name: BuildOutput
-              RunOrder: 1
     DependsOn:
       - CodePipelineApiArtifactBucketPolicy
       - CodeBuildProjectApi
@@ -467,11 +409,6 @@ Resources:
                 Action:
                   - codebuild:StartBuild
                   - codebuild:BatchGetBuilds
-                  - codecommit:GetBranch
-                  - codecommit:GetCommit
-                  - codecommit:UploadArchive
-                  - codecommit:GetUploadArchiveStatus
-                  - codecommit:CancelUploadArchive
                   - iam:PassRole
               - Resource: !Sub arn:aws:s3:::${CodePipelineWorkerArtifactBucket}/*
                 Effect: Allow
@@ -480,10 +417,6 @@ Resources:
                   - s3:GetObject
                   - s3:GetObjectVersion
                   - s3:GetBucketVersioning
-              - Resource: !Sub arn:aws:iam::${DeploymentAccountId}:role/${DeploymentStackName}-deploy-worker-service-role
-                Effect: Allow
-                Action:
-                  - sts:AssumeRole
 
   CodePipelineServiceApiRole:
     Type: AWS::IAM::Role
@@ -501,17 +434,11 @@ Resources:
           PolicyDocument:
             Version: 2012-10-17
             Statement:
-              # TODO: Allow changes on customer cluster
               - Resource: "*"
                 Effect: Allow
                 Action:
                   - codebuild:StartBuild
                   - codebuild:BatchGetBuilds
-                  - codecommit:GetBranch
-                  - codecommit:GetCommit
-                  - codecommit:UploadArchive
-                  - codecommit:GetUploadArchiveStatus
-                  - codecommit:CancelUploadArchive
                   - iam:PassRole
               - Resource: !Sub arn:aws:s3:::${CodePipelineApiArtifactBucket}/*
                 Effect: Allow
@@ -520,10 +447,6 @@ Resources:
                   - s3:GetObject
                   - s3:GetObjectVersion
                   - s3:GetBucketVersioning
-              - Resource: !Sub arn:aws:iam::${DeploymentAccountId}:role/${DeploymentStackName}-deploy-api-service-role
-                Effect: Allow
-                Action:
-                  - sts:AssumeRole
 
 
 Outputs:
