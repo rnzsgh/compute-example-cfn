@@ -408,10 +408,10 @@ Resources:
                   - codebuild:StartBuild
                   - codebuild:BatchGetBuilds
                   - iam:PassRole
-              - Resource:
-                - ${Arn}/*
-                - Arn:
-                    Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineWorkerArtifactBucketArn
+              - Resource: !Sub
+                  - ${Arn}/*
+                  - Arn:
+                      Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineWorkerArtifactBucketArn
                 Effect: Allow
                 Action:
                   - s3:PutObject
@@ -452,10 +452,10 @@ Resources:
                   - codebuild:StartBuild
                   - codebuild:BatchGetBuilds
                   - iam:PassRole
-              - Resource:
-                - ${Arn}/*
-                - Arn:
-                    Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineApiArtifactBucketArn
+              - Resource: !Sub
+                  - ${Arn}/*
+                  - Arn:
+                      Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineApiArtifactBucketArn
                 Effect: Allow
                 Action:
                   - s3:PutObject
