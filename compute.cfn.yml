@@ -7,7 +7,7 @@ Description: Compute Example
 
 Parameters:
 
-  TemplateBucket:
+  TemplateBucketName:
     Type: String
     Default: poc-compute-example-cfn
     Description: The template bucket for the CloudFormation templates
@@ -214,7 +214,7 @@ Resources:
   VpcStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/compute/vpc.cfn.yml
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucketName}/compute/vpc.cfn.yml
       Parameters:
         ParentStackName: !Ref AWS::StackName
         DeploymentId: !Ref DeploymentId
@@ -229,7 +229,7 @@ Resources:
   ObjectStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/compute/object.cfn.yml
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucketName}/compute/object.cfn.yml
       Parameters:
         ParentStackName: !Ref AWS::StackName
         DeploymentId: !Ref DeploymentId
@@ -241,7 +241,7 @@ Resources:
   QueueStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/compute/queue.cfn.yml
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucketName}/compute/queue.cfn.yml
       Parameters:
         ParentStackName: !Ref AWS::StackName
         DeploymentId: !Ref DeploymentId
@@ -253,7 +253,7 @@ Resources:
   DbStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/compute/db.cfn.yml
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucketName}/compute/db.cfn.yml
       Parameters:
         ParentStackName: !Ref AWS::StackName
         DeploymentId: !Ref DeploymentId
@@ -269,7 +269,7 @@ Resources:
   FargateStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/compute/fargate.cfn.yml
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucketName}/compute/fargate.cfn.yml
       Parameters:
         ParentStackName: !Ref AWS::StackName
         DeploymentId: !Ref DeploymentId
@@ -294,14 +294,13 @@ Resources:
   DeployStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/compute/deploy.cfn.yml
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucketName}/compute/deploy.cfn.yml
       Parameters:
         ParentStackName: !Ref AWS::StackName
         DeploymentId: !Ref DeploymentId
         EnvironmentName: !Ref EnvironmentName
         BuildAccountId: !Ref BuildAccountId
         FargateStackName: !GetAtt FargateStack.Outputs.Name
-        VpcStackName: !GetAtt VpcStack.Outputs.Name
         ObjectStackName: !GetAtt ObjectStack.Outputs.Name
         CodeBuildDockerImage: !Ref CodeBuildDockerImage
 
