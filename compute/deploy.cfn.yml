@@ -121,7 +121,7 @@ Resources:
         - Key: DeploymentId
           Value: !Ref DeploymentId
         - Key: Name
-          Value: !Ref AWS::StackName
+          Value: !Ref ParentStackName
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Type
@@ -180,7 +180,7 @@ Resources:
         - Key: DeploymentId
           Value: !Ref DeploymentId
         - Key: Name
-          Value: !Ref AWS::StackName
+          Value: !Ref ParentStackName
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Type

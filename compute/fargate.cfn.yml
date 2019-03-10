@@ -343,7 +343,7 @@ Resources:
             - Name: AWS_REGION
               Value: !Ref AWS::Region
             - Name: STACK_NAME
-              Value: !Ref AWS::StackName
+              Value: !Ref ParentStackName
             - Name: DEPLOYMENT_ID
               Value: !Ref DeploymentId
           LogConfiguration:
@@ -414,7 +414,7 @@ Resources:
             - Name: AWS_REGION
               Value: !Ref AWS::Region
             - Name: STACK_NAME
-              Value: !Ref AWS::StackName
+              Value: !Ref ParentStackName
             - Name: DEPLOYMENT_ID
               Value: !Ref DeploymentId
           LogConfiguration:
