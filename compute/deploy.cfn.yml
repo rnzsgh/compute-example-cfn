@@ -411,6 +411,18 @@ Resources:
               - Resource: !Sub
                   - ${Arn}/*
                   - Arn:
+                      Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineWorkerReleaseBucketArn
+                Effect: Allow
+                Action:
+                  - s3:*
+              - Resource:
+                  - Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineWorkerReleaseBucketArn
+                Effect: Allow
+                Action:
+                  - s3:*
+              - Resource: !Sub
+                  - ${Arn}/*
+                  - Arn:
                       Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineWorkerArtifactBucketArn
                 Effect: Allow
                 Action:
@@ -452,6 +464,18 @@ Resources:
                   - codebuild:StartBuild
                   - codebuild:BatchGetBuilds
                   - iam:PassRole
+              - Resource: !Sub
+                  - ${Arn}/*
+                  - Arn:
+                      Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineApiReleaseBucketArn
+                Effect: Allow
+                Action:
+                  - s3:*
+              - Resource:
+                  - Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineApiReleaseBucketArn
+                Effect: Allow
+                Action:
+                  - s3:*
               - Resource: !Sub
                   - ${Arn}/*
                   - Arn:
