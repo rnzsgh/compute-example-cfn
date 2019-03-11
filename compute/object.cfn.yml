@@ -50,6 +50,8 @@ Resources:
     DeletionPolicy: Delete
     Properties:
       BucketName: !Sub ${DeploymentId}-${EnvironmentName}-${ParentStackName}-api
+      VersioningConfiguration:
+        Status: Enabled
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -87,6 +89,8 @@ Resources:
     DeletionPolicy: Delete
     Properties:
       BucketName: !Sub ${DeploymentId}-${EnvironmentName}-${ParentStackName}-worker
+      VersioningConfiguration:
+        Status: Enabled
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
