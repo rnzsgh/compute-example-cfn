@@ -283,7 +283,7 @@ Resources:
   FargateTaskDefinitionApi:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Family: !Ref ParentStackName
+      Family: !Sub ${ParentStackName}-api
       RequiresCompatibilities:
         - FARGATE
       Cpu: !Ref ContainerCpuApi
