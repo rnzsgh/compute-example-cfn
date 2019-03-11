@@ -93,7 +93,7 @@ Resources:
         - Key: Type
           Value: Api
 
-  CodePipe#CodePipelineWorkerArtifactBucket:
+  CodePipelineWorkerArtifactBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Delete
     Properties:
@@ -129,7 +129,6 @@ Resources:
   EcrDockerRepositoryApi:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub ${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-api
       RepositoryPolicyText:
         Version: 2012-10-17
         Statement:
@@ -146,7 +145,6 @@ Resources:
   EcrDockerRepositoryWorker:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub ${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-worker
       RepositoryPolicyText:
         Version: 2012-10-17
         Statement:
@@ -282,6 +280,16 @@ Resources:
                   - ecr:BatchGetImage
                   - ecr:BatchCheckLayerAvailability
               - Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${EcrDockerRepositoryApi}
+                Effect: Allow
+                Action:
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:PutImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+              - Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${EcrDockerRepositoryWorker}
                 Effect: Allow
                 Action:
                   - ecr:GetDownloadUrlForLayer
