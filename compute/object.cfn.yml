@@ -45,6 +45,53 @@ Parameters:
 
 Resources:
 
+  DeployS3CloudTrailBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: DeploymentId
+          Value: !Ref DeploymentId
+        - Key: Name
+          Value: !Ref ParentStackName
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Type
+          Value: Api
+
+  DeployS3CloudTrailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DeployS3CloudTrailBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: cloudtrail-acl-check
+            Effect: Allow
+            Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt DeployS3CloudTrailBucket.Arn
+          - Sid: cloudtrail-write
+            Effect: Allow
+            Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub ${DeployS3CloudTrailBucket.Arn}/AWSLogs/${AWS::AccountId}/*
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+
   CodePipelineApiReleaseBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Delete
@@ -229,32 +276,8 @@ Resources:
         Statement:
           - Effect: Allow
             Principal: '*'
-            Action:
-              - s3:GetObject
-            Resource:
-              - !Sub arn:aws:s3:::prod-${AWS::Region}-starport-layer-bucket/*
-          - Effect: Allow
-            Principal: '*'
-            Action:
-              - s3:*
-            Resource:
-              - !Sub arn:aws:s3:::${DataBucket}
-              - !Sub arn:aws:s3:::${DataBucket}/*
-              - !Sub arn:aws:s3:::${CodePipelineApiArtifactBucket}
-              - !Sub arn:aws:s3:::${CodePipelineApiArtifactBucket}/*
-              - !Sub arn:aws:s3:::${CodePipelineApiReleaseBucket}
-              - !Sub arn:aws:s3:::${CodePipelineApiReleaseBucket}/*
-              - !Sub arn:aws:s3:::${CodePipelineWorkerArtifactBucket}
-              - !Sub arn:aws:s3:::${CodePipelineWorkerArtifactBucket}/*
-              - !Sub arn:aws:s3:::${CodePipelineWorkerReleaseBucket}
-              - !Sub arn:aws:s3:::${CodePipelineWorkerReleaseBucket}/*
-          - Effect: Allow
-            Principal: '*'
-            Action:
-              - s3:GetObject
-              - s3:GetObjectVersion
-            Resource:
-              - !Sub arn:aws:s3:::${ModelBucketName}/*
+            Action: '*'
+            Resource: '*'
       RouteTableIds:
         - Fn::ImportValue: !Sub ${VpcStackName}-PrivateRouteTableSubnet0
         - Fn::ImportValue: !Sub ${VpcStackName}-PrivateRouteTableSubnet1
@@ -355,5 +378,13 @@ Outputs:
     Export:
       Name: !Sub ${AWS::StackName}-CodePipelineWorkerReleaseBucketArn
 
+  DeployS3CloudTrailBucketName:
+    Value: !Ref DeployS3CloudTrailBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-DeployS3CloudTrailBucketName
 
+  DeployS3CloudTrailBucketArn:
+    Value: !GetAtt DeployS3CloudTrailBucket.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-DeployS3CloudTrailBucketArn
 

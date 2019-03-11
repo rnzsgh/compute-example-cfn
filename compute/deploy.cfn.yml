@@ -52,6 +52,105 @@ Parameters:
 
 Resources:
 
+  DeployCloudWatchEventRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: cwe-pipeline-execution
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: codepipeline:StartPipelineExecution
+                Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipelineApi}
+              - Effect: Allow
+                Action: codepipeline:StartPipelineExecution
+                Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipelineWorker}
+
+  DeployS3CloudTrail:
+    Type: AWS::CloudTrail::Trail
+    Properties:
+      S3BucketName:
+        Fn::ImportValue: !Sub ${ObjectStackName}-DeployS3CloudTrailBucketName
+      EventSelectors:
+        - DataResources:
+            - Type: AWS::S3::Object
+              Values:
+                - !Sub
+                    - ${Arn}/images.json
+                    - Arn:
+                        Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineApiReleaseBucketArn
+            - Type: AWS::S3::Object
+              Values:
+                - !Sub
+                    - ${Arn}/images.json
+                    - Arn:
+                        Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineWorkerReleaseBucketArn
+          ReadWriteType: WriteOnly
+      IncludeGlobalServiceEvents: true
+      IsLogging: true
+      IsMultiRegionTrail: true
+
+  DeployApiCloudWatchEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - AWS API Call via CloudTrail
+        detail:
+          eventSource:
+            - s3.amazonaws.com
+          eventName:
+            - PutObject
+            - CompleteMultipartUpload
+          resources:
+            ARN:
+              - !Sub
+                  - ${Arn}/images.json
+                  - Arn:
+                      Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineApiReleaseBucketArn
+      Targets:
+        - Arn: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipelineApi}
+          RoleArn: !GetAtt DeployCloudWatchEventRole.Arn
+          Id: !Sub ${AWS::StackName}-CodePipelineApi
+
+  DeployWorkerCloudWatchEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - AWS API Call via CloudTrail
+        detail:
+          eventSource:
+            - s3.amazonaws.com
+          eventName:
+            - PutObject
+            - CompleteMultipartUpload
+          resources:
+            ARN:
+              - !Sub
+                - ${Arn}/images.json
+                - Arn:
+                    Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineWorkerReleaseBucketArn
+      Targets:
+        - Arn: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipelineWorker}
+          RoleArn: !GetAtt DeployCloudWatchEventRole.Arn
+          Id: !Sub ${AWS::StackName}-CodePipelineWorker
+
   LogGroupBuildApi:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -283,7 +382,7 @@ Resources:
                 S3Bucket:
                   Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineWorkerReleaseBucketName
                 S3ObjectKey: images.json
-                PollForSourceChanges: true
+                PollForSourceChanges: false
               OutputArtifacts:
                 - Name: App
               RunOrder: 1
@@ -340,10 +439,10 @@ Resources:
                 Version: 1
                 Provider: S3
               Configuration:
+                PollForSourceChanges: false
                 S3Bucket:
                   Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineApiReleaseBucketName
                 S3ObjectKey: images.json
-                PollForSourceChanges: true
               OutputArtifacts:
                 - Name: App
               RunOrder: 1
