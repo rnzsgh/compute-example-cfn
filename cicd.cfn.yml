@@ -129,6 +129,7 @@ Resources:
   EcrDockerRepositoryApi:
     Type: AWS::ECR::Repository
     Properties:
+      RepositoryName: !Sub ${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-api
       RepositoryPolicyText:
         Version: 2012-10-17
         Statement:
@@ -145,6 +146,7 @@ Resources:
   EcrDockerRepositoryWorker:
     Type: AWS::ECR::Repository
     Properties:
+      RepositoryName: !Sub ${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-worker
       RepositoryPolicyText:
         Version: 2012-10-17
         Statement:
