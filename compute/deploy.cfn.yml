@@ -21,6 +21,13 @@ Parameters:
     MaxLength: 255
     AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
 
+  VpcStackName:
+    Description: Name of VPC stack
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+
   ObjectStackName:
     Description: Name of object stack
     Type: String
@@ -181,12 +188,13 @@ Resources:
             phases:
               install:
                 commands:
-                  - apt-get update && apt-get -y install jq python-pip && pip install --upgrade python && pip install --upgrade awscli
+                  - apt-get update && apt-get -y install python-pip jq && pip install --upgrade python && pip install --upgrade awscli
               pre_build:
                   commands:
-                  - $(aws ecr get-login --no-include-email --registry-ids $BUILD_ACCOUNT_ID)
                   - IMAGE_URI=$(cat images.json | jq '.[0].imageUri' | tr -d \")
+                  - echo $IMAGE_URI
                   - TAG="$(date +%Y-%m-%d.%H.%M.%S)"
+                  - $(aws ecr get-login --no-include-email --registry-ids $BUILD_ACCOUNT_ID)
                   - docker pull $IMAGE_URI
                   - $(aws ecr get-login --no-include-email)
                   - docker tag $IMAGE_URI $REPOSITORY_URI:$TAG
@@ -212,6 +220,14 @@ Resources:
             Value: !Ref DeploymentId
       Name: !Sub ${ParentStackName}-api
       ServiceRole: !Ref CodeBuildServiceRole
+      VpcConfig:
+        VpcId:
+          Fn::ImportValue: !Sub ${VpcStackName}-VpcId
+        Subnets:
+          - Fn::ImportValue: !Sub ${VpcStackName}-PrivateSubnetId0
+          - Fn::ImportValue: !Sub ${VpcStackName}-PrivateSubnetId1
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${VpcStackName}-AppSecurityGroupId
       LogsConfig:
         CloudWatchLogs:
           Status: ENABLED
@@ -243,9 +259,10 @@ Resources:
                   - apt-get update && apt-get -y install python-pip jq && pip install --upgrade python && pip install --upgrade awscli
               pre_build:
                   commands:
-                  - $(aws ecr get-login --no-include-email --registry-ids $BUILD_ACCOUNT_ID)
                   - IMAGE_URI=$(cat images.json | jq '.[0].imageUri' | tr -d \")
+                  - echo $IMAGE_URI
                   - TAG="$(date +%Y-%m-%d.%H.%M.%S)"
+                  - $(aws ecr get-login --no-include-email --registry-ids $BUILD_ACCOUNT_ID)
                   - docker pull $IMAGE_URI
                   - $(aws ecr get-login --no-include-email)
                   - docker tag $IMAGE_URI $REPOSITORY_URI:$TAG
@@ -271,6 +288,14 @@ Resources:
             Value: !Ref DeploymentId
       Name: !Sub ${ParentStackName}-worker
       ServiceRole: !Ref CodeBuildServiceRole
+      VpcConfig:
+        VpcId:
+          Fn::ImportValue: !Sub ${VpcStackName}-VpcId
+        Subnets:
+          - Fn::ImportValue: !Sub ${VpcStackName}-PrivateSubnetId0
+          - Fn::ImportValue: !Sub ${VpcStackName}-PrivateSubnetId1
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub ${VpcStackName}-AppSecurityGroupId
       LogsConfig:
         CloudWatchLogs:
           Status: ENABLED
@@ -428,7 +453,7 @@ Resources:
       ArtifactStore:
         Type: S3
         Location:
-          Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineWorkerArtifactBucketName
+          Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineApiArtifactBucketName
       Stages:
         - Name: Source
           Actions:
