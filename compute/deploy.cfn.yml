@@ -87,13 +87,13 @@ Resources:
             - Type: AWS::S3::Object
               Values:
                 - !Sub
-                    - ${Arn}/images.json
+                    - ${Arn}/images.zip
                     - Arn:
                         Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineApiReleaseBucketArn
             - Type: AWS::S3::Object
               Values:
                 - !Sub
-                    - ${Arn}/images.json
+                    - ${Arn}/images.zip
                     - Arn:
                         Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineWorkerReleaseBucketArn
           ReadWriteType: WriteOnly
@@ -118,7 +118,7 @@ Resources:
           resources:
             ARN:
               - !Sub
-                  - ${Arn}/images.json
+                  - ${Arn}/images.zip
                   - Arn:
                       Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineApiReleaseBucketArn
       Targets:
@@ -143,7 +143,7 @@ Resources:
           resources:
             ARN:
               - !Sub
-                - ${Arn}/images.json
+                - ${Arn}/images.zip
                 - Arn:
                     Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineWorkerReleaseBucketArn
       Targets:
@@ -381,7 +381,7 @@ Resources:
               Configuration:
                 S3Bucket:
                   Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineWorkerReleaseBucketName
-                S3ObjectKey: images.json
+                S3ObjectKey: images.zip
                 PollForSourceChanges: false
               OutputArtifacts:
                 - Name: App
@@ -442,7 +442,7 @@ Resources:
                 PollForSourceChanges: false
                 S3Bucket:
                   Fn::ImportValue: !Sub ${ObjectStackName}-CodePipelineApiReleaseBucketName
-                S3ObjectKey: images.json
+                S3ObjectKey: images.zip
               OutputArtifacts:
                 - Name: App
               RunOrder: 1
