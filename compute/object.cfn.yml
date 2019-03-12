@@ -128,7 +128,9 @@ Resources:
             Action:
               - s3:PutObject
               - s3:PutObjectAcl
-            Resource: !Sub arn:aws:s3:::${CodePipelineApiReleaseBucket}/*
+            Resource:
+              - !Sub arn:aws:s3:::${CodePipelineApiReleaseBucket}
+              - !Sub arn:aws:s3:::${CodePipelineApiReleaseBucket}/*
             Principal:
               AWS: !Sub arn:aws:iam::${BuildAccountId}:root
             Condition:
@@ -171,7 +173,9 @@ Resources:
             Action:
               - s3:PutObject
               - s3:PutObjectAcl
-            Resource: !Sub arn:aws:s3:::${CodePipelineWorkerReleaseBucket}/*
+            Resource:
+              - !Sub arn:aws:s3:::${CodePipelineWorkerReleaseBucket}
+              - !Sub arn:aws:s3:::${CodePipelineWorkerReleaseBucket}/*
             Principal:
               AWS: !Sub arn:aws:iam::${BuildAccountId}:root
             Condition:
