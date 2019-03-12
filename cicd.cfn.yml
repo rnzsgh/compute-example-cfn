@@ -299,14 +299,20 @@ Resources:
                   - ecr:InitiateLayerUpload
                   - ecr:UploadLayerPart
                   - ecr:CompleteLayerUpload
-              - Resource: !Sub arn:aws:s3:::${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-api/*
+              - Resource:
+                  - !Sub arn:aws:s3:::${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-api
+                  - !Sub arn:aws:s3:::${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-api/*
                 Effect: Allow
                 Action:
                   - s3:PutObject
-              - Resource: !Sub arn:aws:s3:::${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-worker/*
+                  - s3:PutObjectAcl
+              - Resource:
+                  - !Sub arn:aws:s3:::${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-worker
+                  - !Sub arn:aws:s3:::${DeploymentId}-${EnvironmentName}-${DeploymentStackName}-worker/*
                 Effect: Allow
                 Action:
                   - s3:PutObject
+                  - s3:PutObjectAcl
 
   CodePipelineWorker:
     Type: AWS::CodePipeline::Pipeline
