@@ -297,10 +297,11 @@ Resources:
       TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucketName}/compute/deploy.cfn.yml
       Parameters:
         ParentStackName: !Ref AWS::StackName
+        VpcStackName: !GetAtt VpcStack.Outputs.Name
+        FargateStackName: !GetAtt FargateStack.Outputs.Name
         DeploymentId: !Ref DeploymentId
         EnvironmentName: !Ref EnvironmentName
         BuildAccountId: !Ref BuildAccountId
-        FargateStackName: !GetAtt FargateStack.Outputs.Name
         ObjectStackName: !GetAtt ObjectStack.Outputs.Name
         CodeBuildDockerImage: !Ref CodeBuildDockerImage
 
