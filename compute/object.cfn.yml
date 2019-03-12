@@ -127,9 +127,13 @@ Resources:
           - Effect: Allow
             Action:
               - s3:PutObject
+              - s3:PutObjectAcl
             Resource: !Sub arn:aws:s3:::${CodePipelineApiReleaseBucket}/*
             Principal:
               AWS: !Sub arn:aws:iam::${BuildAccountId}:root
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
 
   CodePipelineWorkerReleaseBucket:
     Type: AWS::S3::Bucket
@@ -166,9 +170,13 @@ Resources:
           - Effect: Allow
             Action:
               - s3:PutObject
+              - s3:PutObjectAcl
             Resource: !Sub arn:aws:s3:::${CodePipelineWorkerReleaseBucket}/*
             Principal:
               AWS: !Sub arn:aws:iam::${BuildAccountId}:root
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
 
   CodePipelineWorkerArtifactBucket:
     Type: AWS::S3::Bucket
