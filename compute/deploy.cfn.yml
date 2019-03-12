@@ -272,7 +272,7 @@ Resources:
                   - printf '[{"name":"${ServiceName}","imageUri":"%s"}]' $REPOSITORY_URI:$TAG > images.json
             artifacts:
               files: images.json
-          - ServiceName: !Sub ${ParentStackName}-api
+          - ServiceName: !Sub ${ParentStackName}-worker
       Environment:
         ComputeType: BUILD_GENERAL1_SMALL
         Type: LINUX_CONTAINER
